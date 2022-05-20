@@ -45,25 +45,31 @@ class Bgp_afFacts(object):
         'route_map': 'policy-name',
         'prefix': 'prefix',
         'neighbor': 'neighbor-address',
-        'route_reflector_client': 'openconfig-bgp-ext:route-reflector-client',
-        'route_server_client': 'openconfig-bgp-ext:route-server-client',
-        'next_hop_self': ['openconfig-bgp-ext:next-hop-self', 'enabled'],
-        'remove_private_as': ['openconfig-bgp-ext:remove-private-as', 'enabled'],
-        'prefix_list_in': ['openconfig-bgp-ext:prefix-list', 'import-policy'],
-        'prefix_list_out': ['openconfig-bgp-ext:prefix-list', 'export-policy'],
+        'route_reflector_client': 'route-reflector-client',
+        'route_server_client': 'route-server-client',
+        'next_hop_self': ['next-hop-self', 'enabled'],
+        'remove_private_as': ['remove-private-as', 'enabled'],
+        'prefix_list_in': ['prefix-list', 'import-policy'],
+        'prefix_list_out': ['prefix-list', 'export-policy'],
         'maximum_prefix': ['prefix-limit', 'max-prefixes'],
         'activate': 'enabled',
+        'advertise_pip': ['l2vpn-evpn', 'openconfig-bgp-evpn-ext:config', 'advertise-pip'],
+        'advertise_pip_ip': ['l2vpn-evpn', 'openconfig-bgp-evpn-ext:config', 'advertise-pip-ip'],
+        'advertise_pip_peer_ip': ['l2vpn-evpn', 'openconfig-bgp-evpn-ext:config', 'advertise-pip-peer-ip'],
+        'advertise_svi_ip': ['l2vpn-evpn', 'openconfig-bgp-evpn-ext:config', 'advertise-svi-ip'],
         'advertise_all_vni': ['l2vpn-evpn', 'openconfig-bgp-evpn-ext:config', 'advertise-all-vni'],
         'advertise_default_gw': ['l2vpn-evpn', 'openconfig-bgp-evpn-ext:config', 'advertise-default-gw'],
-        'advertise_list': ['l2vpn-evpn', 'openconfig-bgp-evpn-ext:config', 'advertise-list'],
         'ebgp': ['use-multiple-paths', 'ebgp', 'maximum-paths'],
         'ibgp': ['use-multiple-paths', 'ibgp', 'maximum-paths'],
+        'network': ['network-config', 'network'],
+        'dampening': ['route-flap-damping', 'config', 'enabled'],
+        'route_advertise_list': ['l2vpn-evpn', 'openconfig-bgp-evpn-ext:route-advertise', 'route-advertise-list'],
     }
 
     af_redis_params_map = {
         'protocol': 'src-protocol',
         'afi': 'address-family',
-        'metric': 'openconfig-network-instance-ext:metric',
+        'metric': 'metric',
         'route_map': 'import-policy'
     }
 
@@ -92,12 +98,12 @@ class Bgp_afFacts(object):
         objs = list()
         if connection:  # just for linting purposes, remove
             pass
-
         if not data:
             data = get_bgp_af_data(self._module, self.af_params_map)
             vrf_list = [e_bgp_af['vrf_name'] for e_bgp_af in data]
-            self.normalize_af_advertise_prefix(data)
             self.update_max_paths(data)
+            self.update_network(data)
+            self.update_route_advertise_list(data)
             bgp_redis_data = get_all_bgp_af_redistribute(self._module, vrf_list, self.af_redis_params_map)
             self.update_redis_data(data, bgp_redis_data)
             self.update_afis(data)
@@ -191,10 +197,49 @@ class Bgp_afFacts(object):
                     if max_path:
                         af['max_path'] = max_path
 
+    def update_network(self, data):
+        for conf in data:
+            afs = conf.get('address_family', [])
+            if afs:
+                for af in afs:
+                    temp = []
+                    network = af.get('network', None)
+                    if network:
+                        for e in network:
+                            prefix = e.get('prefix', None)
+                            if prefix:
+                                temp.append(prefix)
+                    af['network'] = temp
+                    dampening = af.get('dampening', None)
+                    if dampening:
+                        af.pop('dampening')
+                        af['dampening'] = dampening
+
     def update_afis(self, data):
         for conf in data:
             if 'address_family' in conf:
                 conf['address_family'] = {'afis': conf['address_family']}
+
+    def update_route_advertise_list(self, data):
+        for conf in data:
+            afs = conf.get('address_family', [])
+            if afs:
+                for af in afs:
+                    rt_adv_lst = []
+                    route_advertise_list = af.get('route_advertise_list', None)
+                    if route_advertise_list:
+                        for rt in route_advertise_list:
+                            rt_adv_dict = {}
+                            advertise_afi = rt['advertise-afi-safi'].split(':')[1].split('_')[0].lower()
+                            route_map_config = rt['config']
+                            route_map = route_map_config.get('route-map', None)
+                            if advertise_afi:
+                                rt_adv_dict['advertise_afi'] = advertise_afi
+                            if route_map:
+                                rt_adv_dict['route_map'] = route_map[0]
+                            if rt_adv_dict and rt_adv_dict not in rt_adv_lst:
+                                rt_adv_lst.append(rt_adv_dict)
+                        af['route_advertise_list'] = rt_adv_lst
 
     def normalize_af_redis_params(self, af):
         norm_af = list()
@@ -211,27 +256,3 @@ class Bgp_afFacts(object):
 
             norm_af.append(temp)
         return norm_af
-
-    def normalize_af_advertise_prefix(self, data):
-        for conf in data:
-            afs = conf.get('address_family', [])
-            for af in afs:
-                advertise_all_vni = af.get('advertise_all_vni', None)
-                if advertise_all_vni is None:
-                    af['advertise_all_vni'] = False
-                advertise_default_gw = af.get('advertise_default_gw', None)
-                if advertise_default_gw is None:
-                    af['advertise_default_gw'] = False
-
-                if 'advertise_list' not in af:
-                    continue
-                advertise_list = af.get('advertise_list', [])
-                af.pop('advertise_list')
-                advertise_prefix_list = []
-                for advertise in advertise_list:
-                    if advertise in self.afi_safi_types_map:
-                        afi_safi = self.afi_safi_types_map[advertise].split('_')
-                        advertise_prefix_list.append({'afi': afi_safi[0], 'safi': afi_safi[1]})
-
-                if advertise_prefix_list:
-                    af['advertise_prefix'] = advertise_prefix_list

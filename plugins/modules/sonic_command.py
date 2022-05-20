@@ -8,18 +8,15 @@
 from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
-
-ANSIBLE_METADATA = {'metadata_version': '1.1',
-                    'status': ['preview'],
-                    'supported_by': 'community'}
-
-
 DOCUMENTATION = """
 ---
 module: sonic_command
 version_added: 1.0.0
-author: "Dhivya P (@dhivyap)"
-short_description: Runs commands on devices running Enterprise SONiC.
+notes:
+- Tested against Enterprise SONiC Distribution by Dell Technologies.
+- Supports C(check_mode).
+author: Dhivya P (@dhivayp)
+short_description: Runs commands on devices running Enterprise SONiC
 description:
   - Runs commands on remote devices running Enterprise SONiC Distribution
     by Dell Technologies. Sends arbitrary commands to an Enterprise SONiC node and
@@ -27,7 +24,7 @@ description:
     argument that causes the module to wait for a specific condition
     before returning or time out if the condition is not met.
   - This module does not support running commands in configuration mode.
-    To configure SONiC devices, use M(sonic_config).
+    To configure SONiC devices, use M(dellemc.enterprise_sonic.sonic_config).
 options:
   commands:
     description:
@@ -41,6 +38,7 @@ options:
         Common answers are 'yes' or "\\r" (carriage return, must be
         double quotes). See examples.
     type: list
+    elements: str
     required: true
   wait_for:
     description:
@@ -50,6 +48,7 @@ options:
         within the configured number of retries, the task fails.
         See examples.
     type: list
+    elements: str
   match:
     description:
       - The I(match) argument is used in conjunction with the
@@ -80,24 +79,23 @@ options:
 """
 
 EXAMPLES = """
-tasks:
-  - name: Runs show version on remote devices.
-    sonic_command:
+  - name: Runs show version on remote devices
+    dellemc.enterprise_sonic.sonic_command:
       commands: show version
 
-  - name: Runs show version and checks to see if output contains 'Dell'.
-    sonic_command:
+  - name: Runs show version and checks to see if output contains 'Dell'
+    dellemc.enterprise_sonic.sonic_command:
       commands: show version
       wait_for: result[0] contains Dell
 
-  - name: Runs multiple commands on remote nodes.
-    sonic_command:
+  - name: Runs multiple commands on remote nodes
+    dellemc.enterprise_sonic.sonic_command:
       commands:
         - show version
         - show interface
 
-  - name: Runs multiple commands and evaluate the output.
-    sonic_command:
+  - name: Runs multiple commands and evaluate the output
+    dellemc.enterprise_sonic.sonic_command:
       commands:
         - 'show version'
         - 'show system'
@@ -105,8 +103,8 @@ tasks:
         - result[0] contains Dell
         - result[1] contains Hostname
 
-  - name: Runs commands that require answering a prompt.
-    sonic_command:
+  - name: Runs commands that require answering a prompt
+    dellemc.enterprise_sonic.sonic_command:
       commands:
         - command: 'reload'
           prompt: '[confirm yes/no]: ?$'
@@ -143,24 +141,33 @@ from ansible_collections.ansible.netcommon.plugins.module_utils.network.common.p
     Conditional,
 )
 from ansible_collections.ansible.netcommon.plugins.module_utils.network.common.utils import (
-    transform_commands,
+    EntityCollection,
     to_lines,
 )
 from ansible_collections.dellemc.enterprise_sonic.plugins.module_utils.network.sonic.sonic import run_commands
+from ansible_collections.dellemc.enterprise_sonic.plugins.module_utils.network.sonic.utils.utils import command_list_str_to_dict
+
+
+def transform_commands_dict(module, commands_dict):
+    transform = EntityCollection(
+        module,
+        dict(
+            command=dict(key=True),
+            output=dict(),
+            prompt=dict(type="list"),
+            answer=dict(type="list"),
+            newline=dict(type="bool", default=True),
+            sendonly=dict(type="bool", default=False),
+            check_all=dict(type="bool", default=False),
+        ),
+    )
+
+    return transform(commands_dict)
 
 
 def parse_commands(module, warnings):
-    commands = transform_commands(module)
-
-    if module.check_mode:
-        for item in list(commands):
-            if not item['command'].startswith('show'):
-                warnings.append(
-                    'Only show commands are supported when using check mode, not '
-                    'executing %s' % item['command']
-                )
-                commands.remove(item)
-
+    commands_dict = command_list_str_to_dict(module, warnings, module.params["commands"])
+    commands = transform_commands_dict(module, commands_dict)
     return commands
 
 
@@ -169,9 +176,9 @@ def main():
     """
     argument_spec = dict(
         # { command: <str>, prompt: <str>, response: <str> }
-        commands=dict(type='list', required=True),
+        commands=dict(type='list', required=True, elements="str"),
 
-        wait_for=dict(type='list'),
+        wait_for=dict(type='list', elements="str"),
         match=dict(default='all', choices=['all', 'any']),
 
         retries=dict(default=10, type='int'),
