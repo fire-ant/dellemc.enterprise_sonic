@@ -335,7 +335,7 @@ class Bgp_communities(ConfigBase):
                                     ]
                                 }
                             }"""
-        env = jinja2.Environment(autoescape=select_autoescape())
+        env = jinja2.Environment(autoescape=jinja2.select_autoescape())
         t = env.from_string(payload_template)
         intended_payload = t.render(input_data)
         ret_payload = json.loads(intended_payload)
