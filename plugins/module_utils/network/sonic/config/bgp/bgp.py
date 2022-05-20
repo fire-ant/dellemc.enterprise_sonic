@@ -64,7 +64,9 @@ class Bgp(ConfigBase):
 
     network_instance_path = '/data/openconfig-network-instance:network-instances/network-instance'
     protocol_bgp_path = 'protocols/protocol=BGP,bgp/bgp'
-    log_neighbor_changes_path = 'openconfig-bgp-ext:logging-options/config/log-neighbor-state-changes'
+    log_neighbor_changes_path = 'logging-options/config/log-neighbor-state-changes'
+    holdtime_path = 'config/hold-time'
+    keepalive_path = 'config/keepalive-interval'
 
     def __init__(self, module):
         super(Bgp, self).__init__(module)
@@ -195,6 +197,22 @@ class Bgp(ConfigBase):
         delete_path = '%s=%s/%s' % (self.network_instance_path, vrf_name, self.protocol_bgp_path)
         return({'path': delete_path, 'method': DELETE})
 
+    def get_delete_max_med_requests(self, vrf_name, max_med, match):
+        requests = []
+
+        match_max_med = match.get('max_med', None)
+        if not max_med or not match_max_med:
+            return requests
+
+        generic_del_path = '%s=%s/%s/global/' % (self.network_instance_path, vrf_name, self.protocol_bgp_path)
+
+        match_max_med_on_startup = match.get('max_med', {}).get('on_startup')
+        if match_max_med_on_startup:
+            requests.append({'path': generic_del_path + "max-med/config/time", 'method': DELETE})
+            requests.append({'path': generic_del_path + "max-med/config/max-med-val", 'method': DELETE})
+
+        return requests
+
     def get_delete_bestpath_requests(self, vrf_name, bestpath, match):
         requests = []
 
@@ -204,6 +222,7 @@ class Bgp(ConfigBase):
 
         route_selection_del_path = '%s=%s/%s/global/route-selection-options/config/' % (self.network_instance_path, vrf_name, self.protocol_bgp_path)
         multi_paths_del_path = '%s=%s/%s/global/use-multiple-paths/ebgp/config/' % (self.network_instance_path, vrf_name, self.protocol_bgp_path)
+        generic_del_path = '%s=%s/%s/global/' % (self.network_instance_path, vrf_name, self.protocol_bgp_path)
 
         if bestpath.get('compare_routerid', None) and match_bestpath.get('compare_routerid', None):
             url = '%s=%s/%s/global/route-selection-options' % (self.network_instance_path, vrf_name, self.protocol_bgp_path)
@@ -217,21 +236,25 @@ class Bgp(ConfigBase):
         as_path = bestpath.get('as_path', None)
         if as_path and match_as_path:
             if as_path.get('confed', None) is not None and match_as_path.get('confed', None):
-                requests.append({'path': route_selection_del_path + "openconfig-bgp-ext:compare-confed-as-path", 'method': DELETE})
+                requests.append({'path': route_selection_del_path + "compare-confed-as-path", 'method': DELETE})
             if as_path.get('ignore', None) is not None and match_as_path.get('ignore', None):
                 requests.append({'path': route_selection_del_path + "ignore-as-path-length", 'method': DELETE})
             if as_path.get('multipath_relax', None) is not None and match_as_path.get('multipath_relax', None):
                 requests.append({'path': multi_paths_del_path + "allow-multiple-as", 'method': DELETE})
             if as_path.get('multipath_relax_as_set', None) is not None and match_as_path.get('multipath_relax_as_set', None):
-                requests.append({'path': multi_paths_del_path + "openconfig-bgp-ext:as-set", 'method': DELETE})
+                requests.append({'path': multi_paths_del_path + "as-set", 'method': DELETE})
 
         match_med = match_bestpath.get('med', None)
         med = bestpath.get('med', None)
         if med and match_med:
             if med.get('confed', None) is not None and match_med.get('confed', None):
-                requests.append({'path': route_selection_del_path + "openconfig-bgp-ext:med-confed", 'method': DELETE})
+                requests.append({'path': route_selection_del_path + "med-confed", 'method': DELETE})
             if med.get('missing_as_worst', None) is not None and match_med.get('missing_as_worst', None):
-                requests.append({'path': route_selection_del_path + "openconfig-bgp-ext:med-missing-as-worst", 'method': DELETE})
+                requests.append({'path': route_selection_del_path + "med-missing-as-worst", 'method': DELETE})
+            if med.get('always_compare_med', None) is not None and match_med.get('always_compare_med', None):
+                requests.append({'path': route_selection_del_path + "always-compare-med", 'method': DELETE})
+            if med.get('max_med_val', None) is not None and match_med.get('max_med_val', None):
+                requests.append({'path': generic_del_path + "max-med/config/admin-max-med-val", 'method': DELETE})
 
         return requests
 
@@ -246,11 +269,25 @@ class Bgp(ConfigBase):
         requests = []
 
         router_id = command.get('router_id', None)
+        timers = command.get('timers', None)
+        holdtime = None
+        keepalive = None
+        if timers:
+            holdtime = command['timers'].get('holdtime', None)
+            keepalive = command['timers'].get('keepalive_interval', None)
         log_neighbor_changes = command.get('log_neighbor_changes', None)
         bestpath = command.get('bestpath', None)
 
         if router_id and match.get('router_id', None):
             url = '%s=%s/%s/global/config/router-id' % (self.network_instance_path, vrf_name, self.protocol_bgp_path)
+            requests.append({"path": url, "method": DELETE})
+
+        if holdtime and match['timers'].get('holdtime', None) != 180:
+            url = '%s=%s/%s/global/config/hold-time' % (self.network_instance_path, vrf_name, self.protocol_bgp_path)
+            requests.append({"path": url, "method": DELETE})
+
+        if keepalive and match['timers'].get('keepalive_interval', None) != 60:
+            url = '%s=%s/%s/global/config/keepalive-interval' % (self.network_instance_path, vrf_name, self.protocol_bgp_path)
             requests.append({"path": url, "method": DELETE})
 
         # Delete the log_neighbor_changes only when existing values is True.
@@ -262,6 +299,11 @@ class Bgp(ConfigBase):
         bestpath_del_reqs = self.get_delete_bestpath_requests(vrf_name, bestpath, match)
         if bestpath_del_reqs:
             requests.extend(bestpath_del_reqs)
+
+        max_med = command.get('max_med', None)
+        max_med_del_reqs = self.get_delete_max_med_requests(vrf_name, max_med, match)
+        if max_med_del_reqs:
+            requests.extend(max_med_del_reqs)
 
         return requests
 
@@ -313,7 +355,7 @@ class Bgp(ConfigBase):
         if as_path_multipath_relax is not None:
             multipath_cfg['allow-multiple-as'] = as_path_multipath_relax
         if as_path_multipath_relax_as_set is not None:
-            multipath_cfg['openconfig-bgp-ext:as-set'] = as_path_multipath_relax_as_set
+            multipath_cfg['as-set'] = as_path_multipath_relax_as_set
 
         payload = {"openconfig-network-instance:config": multipath_cfg}
         if payload:
@@ -323,9 +365,9 @@ class Bgp(ConfigBase):
         return request
 
     def get_modify_route_selection_req(self, vrf_name, compare_routerid, as_path, med):
-        request = None
+        requests = []
         if compare_routerid is None and not as_path and not med:
-            return request
+            return requests
 
         route_selection_cfg = {}
 
@@ -334,6 +376,7 @@ class Bgp(ConfigBase):
 
         med_confed = None
         med_missing_as_worst = None
+        always_compare_med = None
 
         if compare_routerid is not None:
             route_selection_cfg['external-compare-router-id'] = compare_routerid
@@ -342,26 +385,29 @@ class Bgp(ConfigBase):
             as_path_confed = as_path.get('confed', None)
             as_path_ignore = as_path.get('ignore', None)
             if as_path_confed is not None:
-                route_selection_cfg['openconfig-bgp-ext:compare-confed-as-path'] = as_path_confed
+                route_selection_cfg['compare-confed-as-path'] = as_path_confed
             if as_path_ignore is not None:
                 route_selection_cfg['ignore-as-path-length'] = as_path_ignore
 
         if med:
             med_confed = med.get('confed', None)
             med_missing_as_worst = med.get('missing_as_worst', None)
+            always_compare_med = med.get('always_compare_med', None)
             if med_confed is not None:
-                route_selection_cfg['openconfig-bgp-ext:med-confed'] = med_confed
+                route_selection_cfg['med-confed'] = med_confed
             if med_missing_as_worst is not None:
-                route_selection_cfg['openconfig-bgp-ext:med-missing-as-worst'] = med_missing_as_worst
-
+                route_selection_cfg['med-missing-as-worst'] = med_missing_as_worst
+            if always_compare_med is not None:
+                route_selection_cfg['always-compare-med'] = always_compare_med
         method = PATCH
         payload = {'route-selection-options': {'config': route_selection_cfg}}
 
         if payload:
             url = '%s=%s/%s/global/route-selection-options' % (self.network_instance_path, vrf_name, self.protocol_bgp_path)
             request = {"path": url, "method": method, "data": payload}
+            requests.append(request)
 
-        return request
+        return requests
 
     def get_modify_bestpath_requests(self, vrf_name, bestpath):
         requests = []
@@ -374,7 +420,7 @@ class Bgp(ConfigBase):
 
         route_selection_req = self.get_modify_route_selection_req(vrf_name, compare_routerid, as_path, med)
         if route_selection_req:
-            requests.append(route_selection_req)
+            requests.extend(route_selection_req)
 
         multi_paths_req = self.get_modify_multi_paths_req(vrf_name, as_path)
         if multi_paths_req:
@@ -382,16 +428,67 @@ class Bgp(ConfigBase):
 
         return requests
 
+    def get_modify_max_med_requests(self, vrf_name, max_med):
+        request = None
+        method = PATCH
+        payload = {}
+        on_startup_time = max_med.get('on_startup', {}).get('timer')
+        on_startup_med = max_med.get('on_startup', {}).get('med_val')
+
+        if on_startup_med is not None:
+            payload = {
+                'max-med': {
+                    'config': {
+                        'max-med-val': on_startup_med,
+                        'time': on_startup_time
+                    }
+                }
+            }
+
+        if payload:
+            url = '%s=%s/%s/global/max-med' % (self.network_instance_path, vrf_name, self.protocol_bgp_path)
+            request = {"path": url, "method": method, "data": payload}
+
+        return [request]
+
     def get_modify_log_change_request(self, vrf_name, log_neighbor_changes):
         request = None
         method = PATCH
         payload = {}
 
         if log_neighbor_changes is not None:
-            payload['openconfig-bgp-ext:log-neighbor-state-changes'] = log_neighbor_changes
+            payload['log-neighbor-state-changes'] = log_neighbor_changes
 
         if payload:
             url = '%s=%s/%s/global/%s' % (self.network_instance_path, vrf_name, self.protocol_bgp_path, self.log_neighbor_changes_path)
+            request = {"path": url, "method": method, "data": payload}
+
+        return request
+
+    def get_modify_holdtime_request(self, vrf_name, holdtime):
+        request = None
+        method = PATCH
+        payload = {}
+
+        if holdtime is not None:
+            payload['hold-time'] = str(holdtime)
+
+        if payload:
+            url = '%s=%s/%s/global/%s' % (self.network_instance_path, vrf_name, self.protocol_bgp_path, self.holdtime_path)
+            request = {"path": url, "method": method, "data": payload}
+
+        return request
+
+    def get_modify_keepalive_request(self, vrf_name, keepalive_interval):
+        request = None
+        method = PATCH
+        payload = {}
+
+        if keepalive_interval is not None:
+            payload['keepalive-interval'] = str(keepalive_interval)
+
+        if payload:
+            url = '%s=%s/%s/global/%s' % (self.network_instance_path, vrf_name, self.protocol_bgp_path, self.keepalive_path)
             request = {"path": url, "method": method, "data": payload}
 
         return request
@@ -447,6 +544,9 @@ class Bgp(ConfigBase):
             router_id = None
             log_neighbor_changes = None
             bestpath = None
+            max_med = None
+            holdtime = None
+            keepalive_interval = None
 
             if 'bgp_as' in conf:
                 as_val = conf['bgp_as']
@@ -456,8 +556,15 @@ class Bgp(ConfigBase):
                 log_neighbor_changes = conf['log_neighbor_changes']
             if 'bestpath' in conf:
                 bestpath = conf['bestpath']
+            if 'max_med' in conf:
+                max_med = conf['max_med']
+            if 'timers' in conf and conf['timers']:
+                if 'holdtime' in conf['timers']:
+                    holdtime = conf['timers']['holdtime']
+                if 'keepalive_interval' in conf['timers']:
+                    keepalive_interval = conf['timers']['keepalive_interval']
 
-            if not any([cfg for cfg in have if cfg['vrf_name'] == vrf_name and (cfg['bgp_as'] == as_val)]):
+            if not any(cfg for cfg in have if cfg['vrf_name'] == vrf_name and (cfg['bgp_as'] == as_val)):
                 new_bgp_req = self.get_new_bgp_request(vrf_name, as_val)
                 if new_bgp_req:
                     requests.append(new_bgp_req)
@@ -470,8 +577,22 @@ class Bgp(ConfigBase):
             if log_neighbor_changes_req:
                 requests.append(log_neighbor_changes_req)
 
+            if holdtime:
+                holdtime_req = self.get_modify_holdtime_request(vrf_name, holdtime)
+                if holdtime_req:
+                    requests.append(holdtime_req)
+
+            if keepalive_interval:
+                keepalive_req = self.get_modify_keepalive_request(vrf_name, keepalive_interval)
+                if keepalive_req:
+                    requests.append(keepalive_req)
+
             bestpath_reqs = self.get_modify_bestpath_requests(vrf_name, bestpath)
             if bestpath_reqs:
                 requests.extend(bestpath_reqs)
+            if max_med:
+                max_med_reqs = self.get_modify_max_med_requests(vrf_name, max_med)
+                if max_med_reqs:
+                    requests.extend(max_med_reqs)
 
         return requests

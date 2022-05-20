@@ -22,13 +22,11 @@ __metaclass__ = type
 
 DOCUMENTATION = """
 ---
-author: Ansible Networking Team
-httpapi: sonic
+name: sonic
 short_description: HttpApi Plugin for devices supporting Restconf SONIC API
 description:
-  - This HttpApi plugin provides methods to connect to Restconf SONIC API
-    endpoints.
-version_added: "2.10"
+  - This HttpApi plugin provides methods to connect to Restconf SONIC API endpoints.
+version_added: 1.0.0
 options:
   root_path:
     type: str

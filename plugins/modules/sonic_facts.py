@@ -10,17 +10,14 @@ The module file for sonic_facts
 from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
-
-ANSIBLE_METADATA = {'metadata_version': '1.1',
-                    'status': ['preview'],
-                    'supported_by': 'community'}
-
-
 DOCUMENTATION = """
 ---
 module: sonic_facts
 version_added: 1.0.0
-short_description: Collects facts on devices running Enterprise SONiC.
+notes:
+- Tested against Enterprise SONiC Distribution by Dell Technologies.
+- Supports C(check_mode).
+short_description: Collects facts on devices running Enterprise SONiC
 description:
   - Collects facts from devices running Enterprise SONiC Distribution by
     Dell Technologies. This module places the facts gathered in the fact tree
@@ -29,7 +26,7 @@ description:
     of additional facts.
 author:
 - Mohamed Javeed (@javeedf)
-- Abirami N(@abirami-n)
+- Abirami N (@abirami-n)
 options:
   gather_subset:
     description:
@@ -37,7 +34,7 @@ options:
         to a given subset. Possible values for this argument include
         all, min, hardware, config, legacy, and interfaces. Can specify a
         list of values to include a larger subset. Values can also be used
-        with an initial C(M(!)) to specify that a specific subset should
+        with an initial '!' to specify that a specific subset should
         not be collected.
     required: false
     type: list
@@ -49,7 +46,7 @@ options:
         to a given subset. Possible values for this argument include
         all and the resources like 'all', 'interfaces', 'vlans', 'lag_interfaces', 'l2_interfaces', 'l3_interfaces'.
         Can specify a list of values to include a larger subset. Values
-        can also be used with an initial C(M(!)) to specify that a
+        can also be used with an initial '!' to specify that a
         specific subset should not be collected.
     required: false
     type: list
@@ -80,35 +77,30 @@ options:
 """
 
 EXAMPLES = """
-# Gather all facts
-- sonic_facts:
+- name: Gather all facts
+  dellemc.enterprise_sonic.sonic_facts:
     gather_subset: all
     gather_network_resources: all
-
-# Collects VLAN and interfaces facts
-- sonic_facts:
+- name: Collects VLAN and interfaces facts
+  dellemc.enterprise_sonic.sonic_facts:
     gather_subset:
       - min
     gather_network_resources:
       - vlans
       - interfaces
-
-# Do not collects VLAN and interfaces facts
-- sonic_facts:
+- name: Do not collects VLAN and interfaces facts
+  dellemc.enterprise_sonic.sonic_facts:
     gather_network_resources:
       - "!vlans"
       - "!interfaces"
-
-# Collects VLAN and minimal default facts
-- sonic_facts:
+- name: Collects VLAN and minimal default facts
+  dellemc.enterprise_sonic.sonic_facts:
     gather_subset: min
     gather_network_resources: vlans
-
-# Collect lag_interfaces and minimal default facts
-- sonic_facts:
+- name: Collect lag_interfaces and minimal default facts
+  dellemc.enterprise_sonic.sonic_facts:
     gather_subset: min
     gather_network_resources: lag_interfaces
-
 """
 
 RETURN = """
@@ -122,7 +114,6 @@ from ansible_collections.dellemc.enterprise_sonic.plugins.module_utils.network.s
 def main():
     """
     Main entry point for module execution
-
     :returns: ansible_facts
     """
     module = AnsibleModule(argument_spec=FactsArgs.argument_spec,
